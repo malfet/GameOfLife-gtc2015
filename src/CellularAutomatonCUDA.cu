@@ -20,15 +20,14 @@ __device__ inline bool checkBounds(int offs, int size) {
 }
 
 __device__ inline unsigned countNeighbours(unsigned x, unsigned y, bool *set, int width, int height) {
+	int offsets[8] = {-width-1, -width, -width+1, -1, 1, width-1, width, width+1};
 	unsigned rc=0;
 	int offs = y*width + x;
-	for (int yoffs = -width; yoffs <= width; yoffs += width)
-		for(int xoffs = -1; xoffs <= 1; ++xoffs) {
-			int noffs = offs+yoffs+xoffs;
-			if (noffs == offs) continue;
-			if (!checkBounds(noffs, width*height)) continue;
-			if (set[noffs]) rc++;
-		}
+	for (unsigned cnt = 0; cnt < 8; ++cnt) {
+		int noffs = offs+offsets[cnt];
+		if (!checkBounds(noffs, width*height)) continue;
+		if (set[noffs]) rc++;
+	}
 	return rc;
 }
 

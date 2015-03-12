@@ -6,6 +6,9 @@ namespace CUCA {
 __device__ unsigned birthRules;
 __device__ unsigned survivalRules;
 
+/* Slice of the grid shared between threads withing the block*/
+extern __shared__ bool sharedSet[];
+
 /* Helper functions */
 __device__ inline bool willSurvive(unsigned neigh) {
 	return ((survivalRules>>neigh)&1) == 1;
@@ -19,28 +22,48 @@ __device__ inline bool checkBounds(int offs, int size) {
 	return (offs >= 0 && offs < size);
 }
 
-__device__ inline unsigned countNeighbours(unsigned x, unsigned y, bool *set, int width, int height) {
+__device__ inline unsigned countNeighbours() {
+	int width = blockDim.x+2;
 	int offsets[8] = {-width-1, -width, -width+1, -1, 1, width-1, width, width+1};
 	unsigned rc=0;
-	int offs = y*width + x;
+	int offs = (threadIdx.y+1)*width + threadIdx.x+1;
 	for (unsigned cnt = 0; cnt < 8; ++cnt) {
 		int noffs = offs+offsets[cnt];
-		if (!checkBounds(noffs, width*height)) continue;
-		if (set[noffs]) rc++;
+		if (sharedSet[noffs]) rc++;
 	}
 	return rc;
 }
 
 /* step kernel to be invoked for every cell in the grid */
 __global__ void step(bool *inSet, bool *outSet, int width, int height) {
+	int blockWidth = blockDim.x+2;
+	int blockOffs = (threadIdx.y+1)*blockWidth + threadIdx.x+1;
 	unsigned x = blockIdx.x*blockDim.x+threadIdx.x;
 	unsigned y = blockIdx.y*blockDim.y+threadIdx.y;
 	int offs = y*width + x;
 
-	if (!checkBounds(offs, width*height)) return;
+	if (!checkBounds(offs, width*height)) {
+		sharedSet[blockOffs] = false;
+		return;
+	}
 
 	bool val = inSet[offs];
-	unsigned neigh = countNeighbours(x,y, inSet, width, height);
+	/* Fill in shared set */
+	/* Point itself */
+	sharedSet[blockOffs] = val;
+	/* Edges */
+	if (threadIdx.x == 0) sharedSet[blockOffs-1] = offs > 0 ? inSet[offs-1]: false;
+	if (threadIdx.x == blockDim.x-1) sharedSet[blockOffs+1] = offs+1 < width*height ? inSet[offs+1]: false;
+	if (threadIdx.y == 0) sharedSet[blockOffs-blockWidth] = offs-width >= 0 ? inSet[offs-width]: false;
+	if (threadIdx.y == blockDim.y-1) sharedSet[blockOffs+blockWidth] = offs+width < width*height ? inSet[offs+width]: false;
+	/* Corners */
+	if (threadIdx.x == 0 && threadIdx.y == 0) sharedSet[0] = offs-width > 0 ? inSet[offs-width-1] : false;
+	if (threadIdx.x == blockDim.x-1 && threadIdx.y == 0) sharedSet[blockWidth-1] = offs >= width-1 ? inSet[offs-width+1] : false;
+	if (threadIdx.x == 0 && threadIdx.y == blockDim.y-1) sharedSet[blockOffs+blockWidth-1] = offs+width <= width*height? inSet[offs+width-1] : false;
+	if (threadIdx.x == blockDim.x-1 && threadIdx.y == blockDim.y-1) sharedSet[blockOffs+blockWidth+1] = offs+width+1 < width*height? inSet[offs+width+1] : false;
+	__syncthreads();
+
+	unsigned neigh = countNeighbours();
 	outSet[offs] = val ? willSurvive(neigh) : willBorn(neigh);
 }
 
@@ -64,8 +87,9 @@ bool CellularAutomatonCUDA::step() {
 	const int blockWidth = 16;
 	dim3 blockSize(blockWidth,blockWidth);
 	dim3 numBlocks(divRoundUp(width,blockWidth), divRoundUp(height,blockWidth));
+	size_t shmemSize = (blockWidth+2)*(blockWidth+2)*sizeof(bool);
 	/* Launch the kernel */
-	CUCA::step<<<numBlocks,blockSize>>>(gpuActiveSet, gpuPassiveSet, width, height);
+	CUCA::step<<<numBlocks,blockSize, shmemSize>>>(gpuActiveSet, gpuPassiveSet, width, height);
 	rc = cudaGetLastError();
 	if (rc != cudaSuccess) {
 		std::cout <<"CallAutomationEvaluateStep launch failed "<<rc<<std::endl;

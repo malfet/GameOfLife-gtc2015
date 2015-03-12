@@ -38,8 +38,13 @@ int startViewer(int *argc, char *argv[], CellularAutomaton *a) {
 	return 0;
 }
 
+CellularAutomaton *createAutomaton(bool cpu=false) {
+	return cpu ? createAutomatonCPU() : createAutomatonCUDA();
+}
+
 int main(int argc, char *argv[]) {
-	CellularAutomaton *a = createAutomaton();
+	bool onCPU = hasOption(argc, argv, "--cpu");
+	CellularAutomaton *a = createAutomaton(onCPU);
 
 	if (hasOption(argc, argv, "--profile"))
 		return profileRun(a);

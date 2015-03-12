@@ -30,7 +30,8 @@ protected:
 	unsigned survivalRules;
 };
 
-CellularAutomaton *createAutomaton();
+CellularAutomaton *createAutomatonCPU();
+CellularAutomaton *createAutomatonCUDA();
 
 
 #endif /*__CELLULAR_AUTOMATON_H__*/

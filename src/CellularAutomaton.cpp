@@ -79,7 +79,7 @@ private:
 	bool *activeSet,*passiveSet;
 };
 
-CellularAutomaton *createAutomaton() {
+CellularAutomaton *createAutomatonCPU() {
 	return new CellularAutomatonImpl();
 }
 
